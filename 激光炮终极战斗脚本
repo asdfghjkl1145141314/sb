@@ -1,0 +1,310 @@
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+
+local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Parent = player.PlayerGui
+
+local ControlPanel = Instance.new("Frame")
+ControlPanel.Name = "ControlPanel"
+ControlPanel.Size = UDim2.new(0, 200, 0, 180)
+ControlPanel.Position = UDim2.new(0, 10, 0, 10)
+ControlPanel.BackgroundTransparency = 0.7
+ControlPanel.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+ControlPanel.Parent = ScreenGui
+
+local LaserToggle = Instance.new("TextButton")
+LaserToggle.Name = "LaserToggle"
+LaserToggle.Text = "激光炮系统 OFF"
+LaserToggle.Size = UDim2.new(0.9, 0, 0.2, 0)
+LaserToggle.Position = UDim2.new(0.05, 0, 0.05, 0)
+LaserToggle.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+LaserToggle.TextColor3 = Color3.fromRGB(255, 255, 255)
+LaserToggle.Parent = ControlPanel
+
+local LaserCountText = Instance.new("TextLabel")
+LaserCountText.Name = "LaserCountText"
+LaserCountText.Text = "激光炮数量: 0"
+LaserCountText.Size = UDim2.new(0.9, 0, 0.2, 0)
+LaserCountText.Position = UDim2.new(0.05, 0, 0.3, 0)
+LaserCountText.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+LaserCountText.TextColor3 = Color3.fromRGB(255, 255, 255)
+LaserCountText.Parent = ControlPanel
+
+local LaserCountInput = Instance.new("TextBox")
+LaserCountInput.Name = "LaserCountInput"
+LaserCountInput.PlaceholderText = "输入数量(1-10)"
+LaserCountInput.Size = UDim2.new(0.9, 0, 0.2, 0)
+LaserCountInput.Position = UDim2.new(0.05, 0, 0.55, 0)
+LaserCountInput.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+LaserCountInput.TextColor3 = Color3.fromRGB(255, 255, 255)
+LaserCountInput.Parent = ControlPanel
+
+local GodModeButton = Instance.new("TextButton")
+GodModeButton.Name = "GodModeButton"
+GodModeButton.Text = "无敌模式 OFF"
+GodModeButton.Size = UDim2.new(0.9, 0, 0.2, 0)
+GodModeButton.Position = UDim2.new(0.05, 0, 0.8, 0)
+GodModeButton.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+GodModeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+GodModeButton.Parent = ControlPanel
+
+local FireButton = Instance.new("TextButton")
+FireButton.Name = "FireButton"
+FireButton.Text = "发射"
+FireButton.Size = UDim2.new(0, 120, 0, 50)
+FireButton.Position = UDim2.new(0.5, -60, 0.8, 0)
+FireButton.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+FireButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+FireButton.Parent = ScreenGui
+
+local AutoFireButton = Instance.new("TextButton")
+AutoFireButton.Name = "AutoFireButton"
+AutoFireButton.Text = "持续发射"
+AutoFireButton.Size = UDim2.new(0, 120, 0, 30)
+AutoFireButton.Position = UDim2.new(0.5, -60, 0.9, 0)
+AutoFireButton.BackgroundColor3 = Color3.fromRGB(255, 100, 0)
+AutoFireButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+AutoFireButton.Parent = ScreenGui
+
+local Crosshair = Instance.new("Frame")
+Crosshair.Name = "Crosshair"
+Crosshair.Size = UDim2.new(0, 10, 0, 10)
+Crosshair.Position = UDim2.new(0.5, -5, 0.5, -5)
+Crosshair.BackgroundTransparency = 0.5
+Crosshair.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+Crosshair.Parent = ScreenGui
+
+local laserEnabled = false
+local laserCannons = {}
+local currentLaserCount = 0
+local maxLaserCount = 10
+local autoFiring = false
+local godModeEnabled = false
+local renderSteppedConnection
+
+local function createLaserCannon()
+    local cannon = Instance.new("Part")
+    cannon.Name = "LaserCannon"
+    cannon.Size = Vector3.new(0.5, 0.5, 0.5)
+    cannon.Shape = Enum.PartType.Block
+    cannon.Material = Enum.Material.Neon
+    cannon.Color = Color3.fromRGB(255, 255, 255)
+    cannon.Anchored = true
+    cannon.CanCollide = false
+    cannon.Transparency = 0
+    cannon.Parent = workspace
+    return cannon
+end
+
+local function updateLaserPositions()
+    if not character or not character:FindFirstChild("HumanoidRootPart") then return end
+    
+    local rootPart = character.HumanoidRootPart
+    local radius = 3
+    local angleIncrement = (2 * math.pi) / #laserCannons
+    
+    for i, cannon in ipairs(laserCannons) do
+        local angle = angleIncrement * i
+        local x = math.cos(angle) * radius
+        local z = math.sin(angle) * radius
+        cannon.CFrame = rootPart.CFrame * CFrame.new(x, 1, z)
+    end
+end
+
+local function getCrosshairTarget()
+    local crosshairCenter = Vector2.new(Crosshair.AbsolutePosition.X + Crosshair.AbsoluteSize.X/2, 
+                                    Crosshair.AbsolutePosition.Y + Crosshair.AbsoluteSize.Y/2)
+    local ray = workspace.CurrentCamera:ViewportPointToRay(crosshairCenter.X, crosshairCenter.Y)
+    local params = RaycastParams.new()
+    params.FilterDescendantsInstances = {character}
+    params.FilterType = Enum.RaycastFilterType.Blacklist
+    
+    local raycastResult = workspace:Raycast(ray.Origin, ray.Direction * 1000, params)
+    if raycastResult then
+        return raycastResult.Position, raycastResult.Instance
+    else
+        return ray.Origin + ray.Direction * 1000, nil
+    end
+end
+
+local function killPlayer(targetCharacter)
+    if targetCharacter and targetCharacter ~= character then
+        local humanoid = targetCharacter:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            humanoid:TakeDamage(100000)
+            targetCharacter:BreakJoints()
+            for _, part in ipairs(targetCharacter:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part:Destroy()
+                end
+            end
+        end
+    end
+end
+
+local function damageInRadius(position, radius)
+    for _, otherPlayer in ipairs(Players:GetPlayers()) do
+        if otherPlayer ~= player and otherPlayer.Character then
+            local hrp = otherPlayer.Character:FindFirstChild("HumanoidRootPart")
+            if hrp and (hrp.Position - position).Magnitude <= radius then
+                killPlayer(otherPlayer.Character)
+            end
+        end
+    end
+end
+
+local function fireLaser(fromPosition, targetPosition, hitPart)
+    local direction = (targetPosition - fromPosition).Unit
+    local distance = (targetPosition - fromPosition).Magnitude
+    
+    local laser = Instance.new("Part")
+    laser.Name = "LaserBeam"
+    laser.Size = Vector3.new(0.3, 0.3, distance)
+    laser.CFrame = CFrame.new(fromPosition, targetPosition) * CFrame.new(0, 0, -distance/2)
+    laser.Material = Enum.Material.Neon
+    laser.Color = Color3.fromRGB(255, 0, 0)
+    laser.Anchored = true
+    laser.CanCollide = false
+    laser.Parent = workspace
+    
+    local explosionRadius = 10
+    local explosion = Instance.new("Explosion")
+    explosion.Position = targetPosition
+    explosion.BlastPressure = 1000000
+    explosion.BlastRadius = explosionRadius
+    explosion.ExplosionType = Enum.ExplosionType.NoCraters
+    explosion.DestroyJointRadiusPercent = 100
+    explosion.Parent = workspace
+    
+    damageInRadius(targetPosition, explosionRadius)
+    
+    game:GetService("Debris"):AddItem(laser, 0.2)
+end
+
+local function fireAllCannons()
+    if not laserEnabled or #laserCannons == 0 then return end
+    
+    local targetPos, hitPart = getCrosshairTarget()
+    
+    for _, cannon in ipairs(laserCannons) do
+        fireLaser(cannon.Position, targetPos, hitPart)
+    end
+end
+
+local function autoFireSequence()
+    if not laserEnabled or #laserCannons == 0 then return end
+    
+    local targetPos, hitPart = getCrosshairTarget()
+    
+    for _, cannon in ipairs(laserCannons) do
+        fireLaser(cannon.Position, targetPos, hitPart)
+        wait(0.1)
+    end
+end
+
+local function toggleLaserSystem()
+    laserEnabled = not laserEnabled
+    
+    if laserEnabled then
+        LaserToggle.Text = "激光炮系统 ON"
+        LaserToggle.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
+        
+        for i = 1, currentLaserCount do
+            table.insert(laserCannons, createLaserCannon())
+        end
+        
+        renderSteppedConnection = RunService.RenderStepped:Connect(updateLaserPositions)
+    else
+        LaserToggle.Text = "激光炮系统 OFF"
+        LaserToggle.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+        
+        if renderSteppedConnection then
+            renderSteppedConnection:Disconnect()
+        end
+        
+        for _, cannon in ipairs(laserCannons) do
+            cannon:Destroy()
+        end
+        laserCannons = {}
+    end
+end
+
+local function toggleGodMode()
+    godModeEnabled = not godModeEnabled
+    
+    if godModeEnabled then
+        GodModeButton.Text = "无敌模式 ON"
+        GodModeButton.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
+        humanoid.MaxHealth = math.huge
+        humanoid.Health = math.huge
+    else
+        GodModeButton.Text = "无敌模式 OFF"
+        GodModeButton.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+        humanoid.MaxHealth = 100
+        humanoid.Health = 100
+    end
+end
+
+LaserToggle.MouseButton1Click:Connect(toggleLaserSystem)
+GodModeButton.MouseButton1Click:Connect(toggleGodMode)
+FireButton.MouseButton1Click:Connect(fireAllCannons)
+
+AutoFireButton.MouseButton1Down:Connect(function()
+    autoFiring = true
+    while autoFiring and laserEnabled do
+        autoFireSequence()
+        wait(0.5)
+    end
+end)
+
+AutoFireButton.MouseButton1Up:Connect(function()
+    autoFiring = false
+end)
+
+LaserCountInput.FocusLost:Connect(function()
+    local num = tonumber(LaserCountInput.Text)
+    if num and num >= 1 and num <= 10 then
+        currentLaserCount = num
+        LaserCountText.Text = "激光炮数量: "..currentLaserCount
+        
+        if laserEnabled then
+            if renderSteppedConnection then
+                renderSteppedConnection:Disconnect()
+            end
+            
+            for _, cannon in ipairs(laserCannons) do
+                cannon:Destroy()
+            end
+            laserCannons = {}
+            
+            for i = 1, currentLaserCount do
+                table.insert(laserCannons, createLaserCannon())
+            end
+            
+            renderSteppedConnection = RunService.RenderStepped:Connect(updateLaserPositions)
+        end
+    else
+        LaserCountInput.Text = ""
+    end
+end)
+
+player.CharacterAdded:Connect(function(newChar)
+    character = newChar
+    humanoid = newChar:WaitForChild("Humanoid")
+    
+    if laserEnabled then
+        toggleLaserSystem()
+        toggleLaserSystem()
+    end
+    
+    if godModeEnabled then
+        toggleGodMode()
+        toggleGodMode()
+    end
+end)
